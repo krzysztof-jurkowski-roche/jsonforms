@@ -11,6 +11,7 @@
     "check-format": "echo 'temporarily disabled'",
     "build": "lerna run build",
     "bundle": "lerna run bundle",
+    "quasar": "lerna run build --scope=\"@jsonforms/vue-quasar\"",
     "clean": "lerna run clean",
     "doc": "lerna run doc",
     "test": "lerna run test",
