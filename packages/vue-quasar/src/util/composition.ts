@@ -1,13 +1,20 @@
-import { useStyles } from '../styles';
-import { computed, ref } from 'vue';
-import merge from 'lodash/merge';
-import cloneDeep from 'lodash/cloneDeep';
 import {
   composePaths,
+  computeLabel,
   findUISchema,
   getFirstPrimitiveProp,
+  isDescriptionHidden,
   Resolve,
+  type ControlElement,
+  type DispatchPropsOfControl,
+  type DispatchPropsOfMultiEnumControl,
+  type UISchemaElement,
 } from '@jsonforms/core';
+import { debounce, get, isPlainObject } from 'lodash';
+import cloneDeep from 'lodash/cloneDeep';
+import merge from 'lodash/merge';
+import { computed, ref, type ComputedRef } from 'vue';
+import { useStyles } from '../styles';
 
 /**
  * Adds styles, isFocused, appliedOptions and onChange
@@ -137,3 +144,145 @@ export const useVanillaArrayControl = <I extends { control: any }>(
     childLabelForIndex,
   };
 };
+
+export const useControlAppliedOptions = <
+  T extends { config: any; uischema: UISchemaElement },
+  I extends {
+    control: ComputedRef<T>;
+  },
+>(
+  input: I,
+) => {
+  return computed(() =>
+    merge(
+      {},
+      cloneDeep(input.control.value.config),
+      cloneDeep(input.control.value.uischema.options),
+    ),
+  );
+};
+
+export const useComputedLabel = <
+  T extends { label: string; required: boolean },
+  I extends { control: ComputedRef<T> },
+>(
+  input: I,
+  appliedOptions: ReturnType<typeof useControlAppliedOptions>,
+) => {
+  return computed((): string => {
+    return computeLabel(
+      input.control.value.label,
+      input.control.value.required,
+      !!appliedOptions.value?.hideRequiredAsterisk,
+    );
+  });
+};
+
+/**
+ * Adds styles, isFocused, appliedOptions and onChange
+ */
+export const useQuasarControl = <
+  T extends {
+    uischema: ControlElement;
+    path: string;
+    config: any;
+    label: string;
+    description: string;
+    required: boolean;
+    errors: string;
+    id: string;
+    visible: boolean;
+  },
+  I extends {
+    control: ComputedRef<T>;
+  } & (DispatchPropsOfControl | DispatchPropsOfMultiEnumControl),
+>(
+  input: I,
+  adaptValue: (target: any) => any = (v) => v,
+  debounceWait?: number,
+) => {
+  const touched = ref(false);
+
+  const changeEmitter =
+    typeof debounceWait === 'number' &&
+      (input as DispatchPropsOfControl).handleChange
+      ? debounce((input as DispatchPropsOfControl).handleChange, debounceWait)
+      : (input as DispatchPropsOfControl).handleChange;
+
+  const onChange = (value: any) => {
+    if (changeEmitter) {
+      changeEmitter(input.control.value.path, adaptValue(value));
+    }
+  };
+
+  const appliedOptions = useControlAppliedOptions(input);
+  const isFocused = ref(false);
+
+  const handleFocus = () => {
+    isFocused.value = true;
+  };
+
+  const handleBlur = () => {
+    touched.value = true;
+    isFocused.value = false;
+  };
+
+  const filteredErrors = computed(() => {
+    return touched.value || !appliedOptions.value.enableFilterErrorsBeforeTouch
+      ? input.control.value.errors
+      : '';
+  });
+
+  const persistentHint = (): boolean => {
+    return !isDescriptionHidden(
+      input.control.value.visible,
+      input.control.value.description,
+      isFocused.value,
+      !!appliedOptions.value?.showUnfocusedDescription,
+    );
+  };
+
+  const computedLabel = useComputedLabel(input, appliedOptions);
+
+  const controlWrapper = computed(() => {
+    const { id, description, errors, label, visible, required } =
+      input.control.value;
+    return { id, description, errors, label, visible, required };
+  });
+
+  const styles = useStyles(input.control.value.uischema);
+
+  //TODO: what are these
+  const quasarProps = (path: string) => {
+    const props = get(appliedOptions.value?.quasar, path);
+
+    return props && isPlainObject(props) ? props : {};
+  };
+
+  const overwrittenControl = computed(() => {
+    return {
+      ...input.control.value,
+      errors: filteredErrors.value,
+    };
+  });
+
+  const rawErrors = computed(() => input.control.value.errors);
+
+  return {
+    ...input,
+    control: overwrittenControl,
+    styles,
+    isFocused,
+    appliedOptions,
+    controlWrapper,
+    onChange,
+    quasarProps,
+    persistentHint,
+    computedLabel,
+    touched,
+    handleBlur,
+    handleFocus,
+    rawErrors,
+  };
+};
+
